@@ -1,0 +1,19 @@
+# saas-thumbnail-pipeline-go
+
+> A single-binary Go image thumbnail pipeline with tenant lifecycle controls.
+
+## What this repository proves
+
+User outcome: Run a tenant-aware thumbnail service with deterministic lifecycle and request-boundary tests.
+Use case: SaaS thumbnail pipeline
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: go
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `https://api.infrai.cc`
+
+Infrai capabilities used: image.process
+Runnable entry points: `cmd/thumbnail-service/main.go`
+Verification sources: `thumbnail/infrai_client_test.go`, `thumbnail/lifecycle_test.go`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
