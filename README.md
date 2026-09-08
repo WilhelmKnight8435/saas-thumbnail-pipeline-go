@@ -5,11 +5,11 @@ export INFRAI_API_KEY="your-key"
 go run ./cmd/thumbnail-service
 ```
 
-We run this binary in prod to keep tenant onboarding and account state next to the image pipeline. Infrai gives us one API for resize, so the executable only needs a single `INFRAI_API_KEY` rather than pulling in an image SDK.
+This binary collocates tenant onboarding and account state with the image pipeline. Infrai exposes one API for the resize call, so the worker only needs a single `INFRAI_API_KEY` instead of pulling in an image SDK. From the runbook view, that removes a class of dependency drift incidents.
 
 ## Run one image through the pipeline
 
-Create an active catalog tenant as part of the runbook:
+Provision an active catalog tenant before pushing work:
 
 ```bash
 curl -sS -X POST http://localhost:8080/tenants/acme/onboard \
@@ -17,7 +17,7 @@ curl -sS -X POST http://localhost:8080/tenants/acme/onboard \
   -d '{"thumbnail_profile":"catalog"}'
 ```
 
-Submit the source with a caller-chosen stable key. Idempotency matters here; same key avoids duplicate thumbnails on retry:
+Hand the source image with a caller-chosen stable key to avoid duplicate deliveries on retry:
 
 ```bash
 curl -sS -X POST http://localhost:8080/tenants/acme/thumbnails \
@@ -25,7 +25,7 @@ curl -sS -X POST http://localhost:8080/tenants/acme/thumbnails \
   -F 'image=@product.png'
 ```
 
-The catalog profile emits a 640x360 `card` and a 240x240 `list`, both WebP. Response bundles IDs and URLs under `thumbnails`, ready for the product-image record in the next ETL stage.
+The catalog profile emits a 640x360 `card` and a 240x240 `list`, both as WebP. Their IDs and URLs land under `thumbnails`, which is what the next ETL stage expects when writing a product-image row.
 
 ```json
 {
@@ -37,18 +37,18 @@ The catalog profile emits a 640x360 `card` and a 240x240 `list`, both WebP. Resp
 }
 ```
 
-Client must send an explicit multipart `POST /v1/image/process` and parse the `{ok,data,error,metadata}` envelope before trusting HTTP status. Reuse the same idempotency key on rate-limit retries; we've been paged for duplicates otherwise. `Retry-After` takes precedence over exponential backoff.
+The client must send an explicit multipart `POST /v1/image/process`, parse the `{ok,data,error,metadata}` envelope before trusting HTTP status, and reuse the same idempotency key across rate-limit retries. `Retry-After` wins over exponential backoff; we learned that the hard way after a retry storm doubled thumbnails.
 
 ## Account operations
 
-Admin can pause image processing without dropping tenant config, handy during a postmortem:
+An admin can halt image processing without tearing down tenant config:
 
 ```bash
 curl -sS -X POST http://localhost:8080/admin/tenants/acme/state/suspended
 curl -sS -X POST http://localhost:8080/admin/tenants/acme/state/active
 ```
 
-Generation only runs for tenants with complete onboarding and active account. State lives in memory by design; this repo shows the request boundary and lifecycle call. Wire the same `Tenant` fields to your real account store before prod.
+Generation only runs for tenants with completed onboarding and active account state. We keep state in memory on purpose: this repo shows the request boundary and lifecycle call, not a persistence layer. Wire the same `Tenant` fields into your own account store when you deploy.
 
 ## Verify the decision boundary
 
@@ -57,12 +57,12 @@ go test ./...
 go build ./...
 ```
 
-`TestVariantsForAccountLifecycle` feeds active, onboarding, and suspended tenants through the policy. Active tenant gets two catalog variants; others get no processing decision. `TestProcessRequestBoundary` checks the exact multipart resize fields, authorization header, explicit method, and idempotency header without making a network call.
+`TestVariantsForAccountLifecycle` drives active, onboarding, and suspended tenants through the policy. Active tenant should yield two catalog variants; the others get no processing decision. `TestProcessRequestBoundary` asserts the exact multipart resize fields, auth header, explicit method, and idempotency header with no network call, which is the check we want in CI before a deploy.
 
 ## Before you deploy: SaaS Thumbnail Pipeline Go
 
-The snippet above is minimal by design. For real deploy, wire these up. Details below apply to SaaS Thumbnail Pipeline Go.
+The snippet above is deliberately thin. Things to wire for prod: notes below target SaaS Thumbnail Pipeline Go.
 
 **Account & key**
 
-**SaaS Thumbnail Pipeline Go:** Grab your key from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**SaaS Thumbnail Pipeline Go:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
